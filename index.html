@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Sweetheart ❤️</title>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <style>
+        /* 1. NỀN PASTEL CUTE */
+        body { 
+            margin: 0; overflow: hidden; 
+            background: linear-gradient(135deg, #fdfbfb 0%, #ebedee 100%); /* Mặc định */
+            background-color: #ffdde1;
+            background-image: linear-gradient(0deg, #ffdde1 0%, #ee9ca7 100%);
+            font-family: 'Segoe UI', sans-serif; 
+        }
+        #canvas-container { width: 100%; height: 100vh; display: block; }
+        
+        #ui-layer {
+            position: absolute; bottom: 30px; width: 100%;
+            text-align: center; pointer-events: none; z-index: 100;
+        }
+        
+        .guide { 
+            color: #fff; font-weight: bold;
+            font-size: 14px; margin-bottom: 20px; 
+            text-shadow: 0 2px 4px rgba(255, 105, 180, 0.6);
+            background: rgba(255, 255, 255, 0.2);
+            padding: 10px; border-radius: 20px;
+            display: inline-block;
+        }
+
+        button {
+            pointer-events: auto; cursor: pointer;
+            background: linear-gradient(to right, #ff9a9e, #fecfef); 
+            color: #fff; border: 2px solid #fff;
+            padding: 15px 50px; border-radius: 50px; 
+            font-weight: 800; font-size: 18px;
+            box-shadow: 0 5px 20px rgba(255, 105, 180, 0.4);
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); } }
+
+        #camera-preview {
+            position: absolute; top: 15px; right: 15px;
+            width: 100px; height: 75px;
+            border: 3px solid #fff; 
+            transform: scaleX(-1); opacity: 0.8; border-radius: 15px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        
+        #copyright {
+            position: absolute; bottom: 10px; right: 15px;
+            color: rgba(255, 255, 255, 0.8); font-size: 12px;
+            pointer-events: none; font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <div id="ui-layer">
+        <div class="guide">
+            🖐 <b>Mở tay:</b> Xem ảnh xoay &nbsp;|&nbsp; 🫶 <b>Tim:</b> Điều bất ngờ &nbsp;|&nbsp; ✊ <b>Nắm tay:</b> Gom yêu thương
+        </div>
+        <br>
+        <button id="btnStart" onclick="startSystem()">BẮT ĐẦU PHÉP THUẬT ✨</button>
+    </div>
+
+    <div id="copyright">© Love Garden Version</div>
+
+    <div id="canvas-container"></div>
+    
+    <video class="input_video" playsinline webkit-playsinline muted autoplay style="width:1px;height:1px;position:absolute;opacity:0;pointer-events:none;z-index:-1;"></video>
+    <canvas id="camera-preview"></canvas>
+
+    <script>
+        const MUSIC_URL = "./audio.mp3";
+        let bgMusic = new Audio(MUSIC_URL);
+        bgMusic.loop = true; bgMusic.volume = 1.0;
+
+        const loader = new THREE.TextureLoader();
+        // Đảm bảo tên file ảnh trong thư mục vẫn là image1.jpeg ...
+        const photoFiles = ['./image1.jpeg', './image2.jpeg', './image3.jpeg', './image4.jpeg', './image5.jpeg'];
+        const photoTextures = [];
+        photoFiles.forEach((f, i) => photoTextures[i] = loader.load(f));
+
+        // TẠO HÌNH TRÁI TIM CHO HẠT (Cute hơn chấm tròn)
+        function createHeartTexture(colorHex) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 128; canvas.height = 128;
+            const ctx = canvas.getContext('2d');
+            
+            // Vẽ hình trái tim
+            ctx.fillStyle = colorHex;
+            ctx.beginPath();
+            const topCurveHeight = 128 * 0.3;
+            ctx.moveTo(64, 128 * 0.2);
+            ctx.bezierCurveTo(64, 128 * 0.25, 128 * 0.9, 0, 128 * 0.9, 128 * 0.4);
+            ctx.bezierCurveTo(128 * 0.9, 128 * 0.6, 64, 128 * 0.9, 64, 128);
+            ctx.bezierCurveTo(64, 128 * 0.9, 0, 128 * 0.6, 0, 128 * 0.4);
+            ctx.bezierCurveTo(0, 0, 64, 128 * 0.25, 64, 128 * 0.2);
+            ctx.fill();
+
+            // Thêm chút lấp lánh
+            const grd = ctx.createRadialGradient(64, 64, 0, 64, 64, 60);
+            grd.addColorStop(0, "rgba(255,255,255,0.8)");
+            grd.addColorStop(1, "rgba(255,255,255,0)");
+            ctx.globalCompositeOperation = 'source-atop';
+            ctx.fillStyle = grd;
+            ctx.fillRect(0,0,128,128);
+
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        // BẢNG MÀU PASTEL
+        const textures = {
+            pastelPink: createHeartTexture('#FFB7B2'),   // Hồng phấn
+            pastelBlue: createHeartTexture('#A2E1DB'),   // Xanh ngọc
+            pastelYellow: createHeartTexture('#FFFFB5')  // Vàng kem
+        };
+
+        const CONFIG = {
+            count1: 1500, count2: 500, count3: 300,
+            explodeRadius: 70, photoOrbitRadius: 30,
+            treeHeight: 80, treeBaseRadius: 40
+        };
+
+        let scene, camera, renderer;
+        let group1, group2, group3; 
+        let photoMeshes = [];    
+        let titleMesh, heartIconMesh, loveMesh;
+        
+        let state = 'TREE'; 
+        let selectedIndex = 0;
+        let handX = 0.5;
+
+        function init3D() {
+            const container = document.getElementById('canvas-container');
+            scene = new THREE.Scene();
+            // Sương mù hồng nhẹ
+            scene.fog = new THREE.FogExp2(0xffdde1, 0.002);
+
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 1000);
+            
+            // TỰ ĐỘNG CHỈNH CAMERA CHO ĐIỆN THOẠI
+            if (window.innerWidth < 768) {
+                camera.position.z = 180; // Điện thoại thì lùi xa
+            } else {
+                camera.position.z = 110; // Máy tính
+            }
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            container.appendChild(renderer.domElement);
+
+            group1 = createParticleSystem('pastelPink', CONFIG.count1, 2.5);
+            group2 = createParticleSystem('pastelBlue', CONFIG.count2, 3.5); 
+            group3 = createParticleSystem('pastelYellow', CONFIG.count3, 4.0); 
+
+            createPhotos();
+            createDecorations();
+            animate();
+        }
+
+        function createParticleSystem(type, count, size) {
+            const pPositions = [], pExplode = [], pTree = [], pHeart = [], sizes = [], phases = [];
+            
+            for(let i=0; i<count; i++) {
+                // HÌNH ĐÁM MÂY / CÂY (Nắm tay)
+                const h = Math.random() * CONFIG.treeHeight; 
+                const y = h - CONFIG.treeHeight / 2;
+                const r = (1 - (h / CONFIG.treeHeight)) * CONFIG.treeBaseRadius + Math.random()*5; 
+                const theta = Math.random() * Math.PI * 2;
+                pTree.push(r * Math.cos(theta), y, r * Math.sin(theta));
+
+                // BÙNG NỔ (Xòe tay)
+                const phi = Math.acos(2 * Math.random() - 1);
+                const lam = 2 * Math.PI * Math.random();
+                const rad = CONFIG.explodeRadius * Math.cbrt(Math.random());
+                pExplode.push(rad * Math.sin(phi) * Math.cos(lam), rad * Math.sin(phi) * Math.sin(lam), rad * Math.cos(phi));
+
+                // TRÁI TIM (Chụm tay)
+                const t = Math.random() * Math.PI * 2;
+                let hx = 16 * Math.pow(Math.sin(t), 3);
+                let hy = 13 * Math.cos(t) - 5 * Math.cos(2*t) - 2 * Math.cos(3*t) - Math.cos(4*t);
+                const scaleH = 2.5; 
+                const rFill = Math.pow(Math.random(), 0.5);
+                hx *= rFill; hy *= rFill;
+                pHeart.push(hx * scaleH, hy * scaleH + 5, (Math.random()-0.5)*10); 
+
+                // INIT
+                pPositions.push(pTree[i*3], pTree[i*3+1], pTree[i*3+2]);
+                sizes.push(size);
+                phases.push(Math.random() * Math.PI * 2);
+            }
+
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute('position', new THREE.Float32BufferAttribute(pPositions, 3));
+            geo.setAttribute('size', new THREE.Float32BufferAttribute(sizes, 1));
+            
+            // Màu sắc trắng pha màu gốc
+            const colors = new Float32Array(count * 3);
+            for(let i=0; i<count; i++) { colors[i*3]=1; colors[i*3+1]=1; colors[i*3+2]=1; }
+            geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            
+            geo.userData = { tree: pTree, explode: pExplode, heart: pHeart, phases: phases };
+
+            const mat = new THREE.PointsMaterial({
+                size: size, map: textures[type],
+                transparent: true, opacity: 0.9,
+                depthWrite: false, sizeAttenuation: true,
+                color: 0xffffff 
+            });
+
+            const points = new THREE.Points(geo, mat);
+            scene.add(points);
+            return points;
+        }
+
+        function createPhotos() {
+            // Khung ảnh Polaroid (trắng)
+            const geo = new THREE.PlaneGeometry(8, 8); 
+            const borderGeo = new THREE.PlaneGeometry(9.5, 11); // Viền to kiểu polaroid
+            const borderMat = new THREE.MeshBasicMaterial({ color: 0xFFFFFF }); 
+
+            for(let i=0; i<5; i++) {
+                const mat = new THREE.MeshBasicMaterial({ map: photoTextures[i], side: THREE.DoubleSide });
+                const mesh = new THREE.Mesh(geo, mat);
+                const border = new THREE.Mesh(borderGeo, borderMat);
+                border.position.z = -0.1; 
+                border.position.y = -0.5; // Lệch xuống tí cho giống polaroid
+                mesh.add(border);
+                mesh.visible = false; mesh.scale.set(0,0,0);
+                scene.add(mesh);
+                photoMeshes.push(mesh);
+            }
+        }
+
+        function createDecorations() {
+            // TITLE CHÍNH: My World
+            const canvas = document.createElement('canvas');
+            canvas.width = 1024; canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+            ctx.font = 'bold 100px "Segoe UI", sans-serif'; // Font hiện đại
+            ctx.fillStyle = '#FFFFFF'; ctx.textAlign = 'center';
+            ctx.shadowColor = "#FF69B4"; ctx.shadowBlur = 30; 
+            ctx.fillText("My World ❤️", 512, 150);
+            
+            const tex = new THREE.CanvasTexture(canvas);
+            const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true });
+            titleMesh = new THREE.Mesh(new THREE.PlaneGeometry(50, 12), mat);
+            titleMesh.position.set(0, 55, 0);
+            scene.add(titleMesh);
+
+            // TEXT KHI THẢ TIM
+            const loveCanvas = document.createElement('canvas');
+            loveCanvas.width = 1024; loveCanvas.height = 256;
+            const lCtx = loveCanvas.getContext('2d');
+            
+            // --- SỬA CỠ CHỮ VÀ NỘI DUNG Ở ĐÂY ---
+            lCtx.font = 'bold 80px "Segoe UI", sans-serif'; 
+            lCtx.fillStyle = '#fff'; lCtx.textAlign = 'center';
+            lCtx.shadowColor = "#ff007f"; lCtx.shadowBlur = 30; 
+            lCtx.fillText("Cho a thêm cơ hội được không", 512, 130);
+            
+            const loveTex = new THREE.CanvasTexture(loveCanvas);
+            const loveMat = new THREE.MeshBasicMaterial({ map: loveTex, transparent: true });
+            loveMesh = new THREE.Mesh(new THREE.PlaneGeometry(70, 18), loveMat);
+            loveMesh.position.set(0, 0, 20);
+            loveMesh.visible = false;
+            scene.add(loveMesh);
+        }
+
+        function updateParticles(group, targetState, speed, time) {
+            const positions = group.geometry.attributes.position.array;
+            const targetKey = (targetState === 'TREE') ? 'tree' : (targetState === 'HEART' ? 'heart' : 'explode');
+            const targets = group.geometry.userData[(targetState === 'PHOTO') ? 'explode' : targetKey];
+
+            for(let i=0; i<positions.length; i++) {
+                positions[i] += (targets[i] - positions[i]) * speed;
+            }
+            group.geometry.attributes.position.needsUpdate = true;
+            
+            // Hiệu ứng đập thình thịch khi ở chế độ Heart
+            if (targetState === 'HEART') {
+                const s = 1 + Math.sin(time * 5) * 0.05;
+                group.scale.set(s,s,s);
+            } else if (targetState === 'EXPLODE') {
+                // TỰ ĐỘNG XOAY KHI XÒE TAY
+                group.rotation.y += 0.005 + (Math.sin(time)*0.002); 
+            } else {
+                group.rotation.y += 0.002;
+            }
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const time = Date.now() * 0.001;
+            const speed = 0.06;
+
+            updateParticles(group1, state, speed, time);
+            updateParticles(group2, state, speed, time);
+            updateParticles(group3, state, speed, time);
+
+            photoMeshes.forEach((mesh, i) => {
+                if(!mesh.material.map && photoTextures[i]) {
+                    mesh.material.map = photoTextures[i]; mesh.material.needsUpdate = true;
+                }
+            });
+
+            if (state === 'TREE') {
+                titleMesh.visible = true; loveMesh.visible = false;
+                titleMesh.scale.lerp(new THREE.Vector3(1,1,1), 0.1);
+                titleMesh.position.y = 55 + Math.sin(time*2)*2; // Bay bay
+                photoMeshes.forEach(m => { m.scale.lerp(new THREE.Vector3(0,0,0), 0.1); m.visible = false; });
+
+            } else if (state === 'HEART') {
+                titleMesh.visible = false; loveMesh.visible = true;
+                photoMeshes.forEach(m => { m.visible = false; });
+                const s = 1 + Math.abs(Math.sin(time*3))*0.1;
+                loveMesh.scale.set(s,s,1);
+
+            } else if (state === 'EXPLODE') { // Xòe tay
+                titleMesh.visible = false; loveMesh.visible = false;
+                // Xoay nhanh hơn để chọn ảnh
+                const baseAngle = group1.rotation.y + time * 1.5; 
+                const angleStep = (Math.PI * 2) / 5;
+                
+                photoMeshes.forEach((mesh, i) => {
+                    mesh.visible = true;
+                    const angle = baseAngle + i * angleStep;
+                    const x = Math.sin(angle) * CONFIG.photoOrbitRadius;
+                    const z = Math.cos(angle) * CONFIG.photoOrbitRadius;
+                    const y = Math.sin(time * 2 + i) * 5; 
+                    mesh.position.lerp(new THREE.Vector3(x, y, z), 0.1);
+                    mesh.lookAt(camera.position);
+
+                    // Hiệu ứng lướt qua
+                    if (z > 10) mesh.scale.lerp(new THREE.Vector3(1.5, 1.5, 1.5), 0.1);
+                    else mesh.scale.lerp(new THREE.Vector3(0.8, 0.8, 0.8), 0.1);
+                });
+
+            } else if (state === 'PHOTO') { // Chụm tay
+                loveMesh.visible = false;
+                // TỰ ĐỘNG CHUYỂN SLIDE ẢNH (2.5 giây 1 tấm)
+                selectedIndex = Math.floor(Date.now() / 2500) % 5;
+
+                photoMeshes.forEach((mesh, i) => {
+                    if (i === selectedIndex) {
+                        mesh.position.lerp(new THREE.Vector3(0, 0, 70), 0.08); // Bay lại gần
+                        mesh.scale.lerp(new THREE.Vector3(4, 4, 4), 0.08); // Phóng to vừa phải
+                        mesh.lookAt(camera.position); mesh.rotation.z = Math.sin(time)*0.05; // Nghiêng nhẹ cute
+                    } else {
+                        mesh.scale.lerp(new THREE.Vector3(0,0,0), 0.1);
+                    }
+                });
+            }
+            renderer.render(scene, camera);
+        }
+
+        function startSystem() {
+            document.getElementById('btnStart').style.display = 'none';
+            bgMusic.play().catch(e => console.log(e));
+            init3D();
+
+            const video = document.getElementsByClassName('input_video')[0];
+            const canvas = document.getElementById('camera-preview');
+            const ctx = canvas.getContext('2d');
+            
+            const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+            hands.setOptions({ maxNumHands: 2, modelComplexity: 1, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+
+            hands.onResults(results => {
+                ctx.clearRect(0,0,100,75); ctx.drawImage(results.image, 0, 0, 100, 75);
+                
+                // Logic nhận diện tay không đổi
+                if (results.multiHandLandmarks.length === 2) {
+                    const h1 = results.multiHandLandmarks[0]; const h2 = results.multiHandLandmarks[1];
+                    const distIndex = Math.hypot(h1[8].x - h2[8].x, h1[8].y - h2[8].y);
+                    if (distIndex < 0.15) { state = 'HEART'; return; }
+                }
+                if(results.multiHandLandmarks.length > 0) {
+                    const lm = results.multiHandLandmarks[0];
+                    handX = lm[9].x; 
+                    const tips = [8,12,16,20]; const wrist = lm[0];
+                    let openDist = 0; tips.forEach(i => openDist += Math.hypot(lm[i].x-wrist.x, lm[i].y-wrist.y));
+                    const pinchDist = Math.hypot(lm[4].x-lm[8].x, lm[4].y-lm[8].y);
+
+                    if (openDist/4 < 0.25) state = 'TREE'; 
+                    else if (pinchDist < 0.05) state = 'PHOTO'; 
+                    else state = 'EXPLODE'; 
+                } else { state = 'TREE'; }
+            });
+
+            const cameraUtils = new Camera(video, {
+                onFrame: async () => { await hands.send({image: video}); }, width: 320, height: 240
+            });
+            cameraUtils.start();
+        }
+
+        window.addEventListener('resize', () => {
+            if(camera) { camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); }
+        });
+    </script>
+</body>
+</html>
